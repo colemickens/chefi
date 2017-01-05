@@ -17,7 +17,9 @@ DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 
 ################################################################################
 
-RUST_CHANNEL="nightly"
+set -x
+
+RUST_CHANNEL="stable"
 TARGET="x86_64-unknown-linux-musl"
 
 # ensure prerequisites
@@ -25,33 +27,37 @@ which rustup || (echo "You must have 'rustup' available" && exit -1)
 which musl-gcc || (echo "You must have 'musl' available" && exit -1)
 
 # ensure nightly toolchain
-rustup install "${RUST_CHANNEL}"
+rustup install stable
+rustup install nightly # for clippy
 
 # ensure musl toolchain
 rustup target add \
 	--toolchain "${RUST_CHANNEL}" \
 	"${TARGET}"
 
-alias cargo="rustup run ${RUST_CHANNEL} cargo"
-
 # ensure rustfmt is here
 # TODO: cargo install --upgrade rustfmt (https://github.com/rust-lang/cargo/issues/3496)
-cargo install --list | grep 'cargo-fmt' \
-	|| cargo install rustfmt
+rustup run "${RUST_CHANNEL}" \
+	cargo install --list | grep 'cargo-fmt' \
+		|| cargo install rustfmt
 
 # ensure clippy is here
 # TODO: cargo install --upgrade clippy (https://github.com/rust-lang/cargo/issues/3496)
-cargo install --list | grep 'cargo-clippy' \
-	|| cargo install clippy
+rustup run "${RUST_CHANNEL}" \
+	cargo install --list | grep 'cargo-clippy' \
+		|| cargo install clippy
 
 # ensure source is formatted
-cargo fmt -- --write-mode=diff \
-	|| (echo "Run 'cargo fmt'" && exit -1)
+rustup run "${RUST_CHANNEL}" \
+	cargo fmt -- --write-mode=diff \
+		|| (echo "Run 'cargo fmt'" && exit -1)
 
 # lint source
-cargo clippy
+rustup run nightly \
+	cargo clippy
 
 # build binary
-cargo build \
-	--target="${TARGET}" \
-	--release
+rustup run "${RUST_CHANNEL}" \
+	cargo build \
+		--target="${TARGET}" \
+		--release
