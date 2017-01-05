@@ -41,7 +41,9 @@ mod errors {
     error_chain!{}
 }
 
-pub fn main() {
+quick_main!(start);
+
+pub fn start() -> Result<()> {
     let matches = App::new("chefi")
         .version(crate_version!())
         .author("Cole Mickens")
@@ -80,16 +82,7 @@ pub fn main() {
             .help("Location for log file"))
         .get_matches();
 
-    if let Err(ref e) = run(matches) {
-        println!("error: {}", e);
-        for e in e.iter().skip(1) {
-            println!("caused by: {}", e);
-        }
-        if let Some(backtrace) = e.backtrace() {
-            println!("backtrace: {:?}", backtrace);
-        }
-        std::process::exit(1);
-    }
+    run(matches)
 }
 
 pub fn run(matches: ArgMatches) -> Result<()> {
