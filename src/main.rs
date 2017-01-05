@@ -106,7 +106,19 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let log_file = Path::new(log_file_s.as_str());
 
     // ensure storage dir exists
-    // TODO: why can't I use try! or ? here?
+    // TODO: If I try to use `try!()` here... I get:
+    // error[E0277]: the trait bound `errors::Error: std::convert::From<std::io::Error>` is not satisfied
+    //    --> src/main.rs:122:5
+    //     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `std::convert::From<std::io::Error>` is not implemented for `errors::Error`
+    //     |
+    //     = help: the following implementations were found:
+    //     = help:   <errors::Error as std::convert::From<errors::ErrorKind>>
+    //     = help:   <errors::Error as std::convert::From<&'a str>>
+    //     = help:   <errors::Error as std::convert::From<std::string::String>>
+    //     = note: required by `std::convert::From::from`
+    //     = note: this error originates in a macro outside of the current crate
+    //
+    // fs::create_dir_all(storage_dir).unwrap()?;
     fs::create_dir_all(storage_dir).unwrap();
 
     // configure logging
@@ -121,8 +133,18 @@ pub fn run(matches: ArgMatches) -> Result<()> {
 
         thread::spawn(move || {
             let mut mount = Mount::new();
-            // TODO: path should be storage_dir but I have lifetime/borrow issues if I try to do
-            // it...
+            // TODO: lifetime problems when using something from ArgMatches
+            //
+            // error: `storage_dir_s` does not live long enough
+            //    --> src/main.rs:104:33
+            //     |
+            // 104 |     let storage_dir = Path::new(storage_dir_s.as_str());
+            //     |                                 ^^^^^^^^^^^^^ does not live long enough
+            //     | - borrowed value only lives until here
+            //     |
+            //     = note: borrowed value must be valid for the static lifetime...<Paste>
+            //
+            // let path = storage_dir.clone();
             let path = Path::new("/tmp/chefi/data");
             mount.mount("/", Static::new(path));
             info!(logger, "serving pastes"; "port" => http_port, "dir" => path.to_str());
@@ -139,8 +161,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let listener = TcpListener::bind(&addr, &handle).unwrap();
     let client_logger = logger.clone();
     let srv = listener.incoming().for_each(move |(tcpconn, addr)| {
-        // TODO: better way than using format!() for this?
-        let client_logger = client_logger.new(o!("client" => format!("{}", addr.ip())));
+        let client_logger = client_logger.new(o!("client" => addr.ip().to_string()));
         info!(client_logger, "accepted connection");
 
         let slug: String = rand::thread_rng().gen_ascii_chars().take(slug_len).collect();
@@ -163,7 +184,6 @@ pub fn run(matches: ArgMatches) -> Result<()> {
                     info!(client_logger, "persisted"; "filepath" => filepath);
                     paste_file.write(&buf[0..n]).unwrap();
 
-                    // TODO: return newline or not...?
                     info!(client_logger, "replied"; "message" => url);
                     write_all(writer, format!("{}\n", url).as_bytes()).wait().unwrap();
 
@@ -177,7 +197,26 @@ pub fn run(matches: ArgMatches) -> Result<()> {
             };
             // TODO: How to handle the error? What does spawn expect exactly?
             // result. Why can't I return 'result' here?
+            //
+            // Option 1:
+            //   Compiling chefi v0.1.0 (file:///mnt/persistentdisk/home/cole/code/colemickens/chefi)
+            //error[E0271]: type mismatch resolving `<futures::Then<tokio_core::io::Read<tokio_core::io::ReadHalf<tokio_core::net::TcpStream>, std::vec::Vec<u8>>, std::result::Result<(), std::io::Error>, [closure@src/main.rs:159:63: 192:10 client_logger:_, filepath:_, paste_file:_, url:_, writer:_]> as futures::Future>::Error == ()`
+            //    --> src/main.rs:194:16
+            //     |
+            // 194 |         handle.spawn(process);
+            //     |                ^^^^^ expected struct `std::io::Error`, found ()
+            //     |
+            //     = note: expected type `std::io::Error`
+            //     = note:    found type `()`
+            //
             // return result;
+
+            // Option 2:
+            //  - forget the real response, just return Ok(()).
+            //  - the drop() is just to avoid an unused warning
+            //
+            // drop(result);
+            // Ok(())
             drop(result);
             Ok(())
         });
