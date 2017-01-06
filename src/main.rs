@@ -92,7 +92,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let domain = value_t!(matches.value_of("domain"), String).unwrap_or_else(|e| e.exit());
     let http_port = value_t!(matches.value_of("http-port"), u16).unwrap_or_else(|e| e.exit());
     let slug_len = value_t!(matches.value_of("slug-len"), usize).unwrap_or_else(|e| e.exit());
-    let storage_dir_s = value_t!(matches.value_of("storage-dir"), String)
+    let storage_dir_s: String = value_t!(matches.value_of("storage-dir"), String)
         .unwrap_or_else(|e| e.exit());
     let storage_dir = Path::new(storage_dir_s.as_str());
     let log_file_s = value_t!(matches.value_of("log-file"), String).unwrap_or_else(|e| e.exit());
@@ -109,22 +109,10 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     // serve existing pastes
     {
         let logger = logger.clone();
-
+        let storage_dir_s = storage_dir_s.clone();
         thread::spawn(move || {
             let mut mount = Mount::new();
-            // TODO: lifetime problems when using something from ArgMatches
-            //
-            // error: `storage_dir_s` does not live long enough
-            //    --> src/main.rs:104:33
-            //     |
-            // 104 |     let storage_dir = Path::new(storage_dir_s.as_str());
-            //     |                                 ^^^^^^^^^^^^^ does not live long enough
-            //     | - borrowed value only lives until here
-            //     |
-            //     = note: borrowed value must be valid for the static lifetime...<Paste>
-            //
-            // let path = storage_dir.clone();
-            let path = Path::new("/tmp/chefi/data");
+            let path = Path::new(storage_dir_s.as_str());
             mount.mount("/", Static::new(path));
             info!(logger, "serving pastes"; "port" => http_port, "dir" => path.to_str());
             Iron::new(mount)
