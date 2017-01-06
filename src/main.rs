@@ -13,7 +13,6 @@ extern crate slog_json;
 extern crate slog_stream;
 extern crate slog_term;
 extern crate staticfile;
-extern crate tokio_proto;
 extern crate tokio_core;
 
 use std::io::prelude::*;
@@ -122,7 +121,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     }
 
     // configure async loop
-    let mut lp = Core::new().unwrap();
+    let mut lp = Core::new().expect("failed to create async Core");
     let handle = lp.handle();
 
     // handle tcp
@@ -135,10 +134,20 @@ pub fn run(matches: ArgMatches) -> Result<()> {
 
         let slug: String = rand::thread_rng().gen_ascii_chars().take(slug_len).collect();
         let filepath = storage_dir.join(&slug);
-        let filepath = filepath.to_str().unwrap().to_string();
+        let filepath = filepath.to_str().expect("storage path for paste was invalid").to_string();
 
-        // TODO: how to chain here:  .chain_err(|| "failed to create file for paste")?;
-        let mut paste_file = File::create(&filepath)?;
+        // TODO: how to make this work?
+        // I can't tell if this is a problem stemming from tokio and for_each....
+        // Or if this is an issue with error_chain...
+        // chain_err seemed to work fine above for the log output file........
+        //
+        //
+        //
+        // vvvv
+        //let mut paste_file = File::create(&filepath).chain_err(|| "failed to create paste file")?;
+        // ^^^^
+        // TODO: does chain_err give me much over expect(...) in this case anyway?
+        let mut paste_file = File::create(&filepath).expect("failed to create paste file");
 
         let mut host = domain.clone();
         if http_port != 80 {
@@ -148,13 +157,18 @@ pub fn run(matches: ArgMatches) -> Result<()> {
 
         let (reader, writer) = tcpconn.split();
         let process = read(reader, vec!(0; buffer_size)).then(move |res| {
-            let result = match res {
+            let result = match res "storage path for paste was invalid"{
                 Ok((_, buf, n)) => {
+                    // TODO: should I match here and error!() if it fails to write? should I let it
+                    // bubble up? likewise with the other write_all
+                    paste_file.write(&buf[0..n])
+                        .expect("failed to write paste to file");
                     info!(client_logger, "persisted"; "filepath" => filepath);
-                    paste_file.write(&buf[0..n]).unwrap();
 
+                    write_all(writer, format!("{}\n", url).as_bytes())
+                        .wait()
+                        .expect("failed to reply to tcp client");
                     info!(client_logger, "replied"; "message" => url);
-                    write_all(writer, format!("{}\n", url).as_bytes()).wait().unwrap();
 
                     info!(client_logger, "finished connection");
                     Ok(())
