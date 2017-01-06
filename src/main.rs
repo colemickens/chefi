@@ -98,25 +98,11 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let log_file_s = value_t!(matches.value_of("log-file"), String).unwrap_or_else(|e| e.exit());
     let log_file = Path::new(log_file_s.as_str());
 
-    // ensure storage dir exists
-    // TODO: If I try to use `try!()` here... I get:
-    // error[E0277]: the trait bound `errors::Error: std::convert::From<std::io::Error>` is not satisfied
-    //    --> src/main.rs:122:5
-    //     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `std::convert::From<std::io::Error>` is not implemented for `errors::Error`
-    //     |
-    //     = help: the following implementations were found:
-    //     = help:   <errors::Error as std::convert::From<errors::ErrorKind>>
-    //     = help:   <errors::Error as std::convert::From<&'a str>>
-    //     = help:   <errors::Error as std::convert::From<std::string::String>>
-    //     = note: required by `std::convert::From::from`
-    //     = note: this error originates in a macro outside of the current crate
-    //
-    // fs::create_dir_all(storage_dir).unwrap()?;
-    fs::create_dir_all(storage_dir).unwrap();
+    fs::create_dir_all(storage_dir).chain_err(|| "failed to create storage dir")?;
 
     // configure logging
     let console_drain = slog_term::streamer().build();
-    let file = File::create(&log_file).expect("Couldn't open log file");
+    let file = File::create(&log_file).chain_err(|| "Couldn't open log file")?;
     let file_drain = slog_stream::stream(file, slog_json::default());
     let logger = slog::Logger::root(slog::duplicate(console_drain, file_drain).fuse(), o!());
 
@@ -141,7 +127,9 @@ pub fn run(matches: ArgMatches) -> Result<()> {
             let path = Path::new("/tmp/chefi/data");
             mount.mount("/", Static::new(path));
             info!(logger, "serving pastes"; "port" => http_port, "dir" => path.to_str());
-            Iron::new(mount).http(format!("0.0.0.0:{}", http_port).as_str()).unwrap();
+            Iron::new(mount)
+                .http(format!("0.0.0.0:{}", http_port).as_str())
+                .chain_err(|| "failed to listen on http")
         });
     }
 
@@ -150,8 +138,8 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let handle = lp.handle();
 
     // handle tcp
-    let addr = format!("0.0.0.0:{}", tcp_port).parse().unwrap();
-    let listener = TcpListener::bind(&addr, &handle).unwrap();
+    let addr = format!("0.0.0.0:{}", tcp_port).parse().chain_err(|| "failed to parse http socket")?;
+    let listener = TcpListener::bind(&addr, &handle).chain_err(|| "failed to listen on tcp")?;
     let client_logger = logger.clone();
     let srv = listener.incoming().for_each(move |(tcpconn, addr)| {
         let client_logger = client_logger.new(o!("client" => addr.ip().to_string()));
@@ -188,28 +176,6 @@ pub fn run(matches: ArgMatches) -> Result<()> {
                     Err(e)
                 }
             };
-            // TODO: How to handle the error? What does spawn expect exactly?
-            // result. Why can't I return 'result' here?
-            //
-            // Option 1:
-            //   Compiling chefi v0.1.0 (file:///mnt/persistentdisk/home/cole/code/colemickens/chefi)
-            //error[E0271]: type mismatch resolving `<futures::Then<tokio_core::io::Read<tokio_core::io::ReadHalf<tokio_core::net::TcpStream>, std::vec::Vec<u8>>, std::result::Result<(), std::io::Error>, [closure@src/main.rs:159:63: 192:10 client_logger:_, filepath:_, paste_file:_, url:_, writer:_]> as futures::Future>::Error == ()`
-            //    --> src/main.rs:194:16
-            //     |
-            // 194 |         handle.spawn(process);
-            //     |                ^^^^^ expected struct `std::io::Error`, found ()
-            //     |
-            //     = note: expected type `std::io::Error`
-            //     = note:    found type `()`
-            //
-            // return result;
-
-            // Option 2:
-            //  - forget the real response, just return Ok(()).
-            //  - the drop() is just to avoid an unused warning
-            //
-            // drop(result);
-            // Ok(())
             drop(result);
             Ok(())
         });

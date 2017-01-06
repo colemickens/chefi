@@ -4,6 +4,8 @@
 
 Clone of [fiche](https://github.com/solusipse/fiche) in [Rust](https://rust-lang.org).
 
+Tested and working in Linux and Windows (likely macOS as well).
+
 `chefi` is an application that starts a TCP and HTTP server.
 A user can post a "paste" to the service with only `netcat` and
 then receives a short URL which can then be used to retrieve the paste
