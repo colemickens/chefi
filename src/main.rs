@@ -157,7 +157,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
 
         let (reader, writer) = tcpconn.split();
         let process = read(reader, vec!(0; buffer_size)).then(move |res| {
-            let result = match res "storage path for paste was invalid"{
+            let result = match res {
                 Ok((_, buf, n)) => {
                     // TODO: should I match here and error!() if it fails to write? should I let it
                     // bubble up? likewise with the other write_all
@@ -178,8 +178,18 @@ pub fn run(matches: ArgMatches) -> Result<()> {
                     Err(e)
                 }
             };
-            drop(result);
-            Ok(())
+            // If I return `result` here then I get this complaint:
+            //
+            // error[E0271]: type mismatch resolving `<futures::Then<tokio_core::io::Read<tokio_core::io::ReadHalf<tokio_core::net::TcpStream>, std::vec::Vec<u8>>, std::result::Result<(), std::io::Error>, [closure@src/main.rs:159:63: 193:10 paste_file:_, client_logger:_, filepath:_, writer:_, url:_]> as futures::Future>::Error == ()`
+            //    --> src/main.rs:195:16
+            //     |
+            // 195 |         handle.spawn(process);
+            //     |                ^^^^^ expected struct `std::io::Error`, found ()
+            //     |
+            //     = note: expected type `std::io::Error`
+            //     = note:    found type `()`
+            //
+            result
         });
 
         handle.spawn(process);
