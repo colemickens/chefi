@@ -159,11 +159,11 @@ pub fn run(matches: ArgMatches) -> Result<()> {
             let mut total_size = 0;
             loop {
                 let mut buf = vec!(0; buffer_size);
-                let read_result = reader.read(&mut buf);
-                if read_result.is_err() {
-                    warn!(client_logger, "failed to read from client");
-                    break;
-                }
+                let read_result = reader.read(&mut buf).map_err(|e| {
+                    warn!(client_logger, "failed to read from client"; "err" => format!("{}", e));
+                });
+                if read_result.is_err() { break; }
+
                 let n = read_result.unwrap();
                 total_size += n;
                 info!(client_logger, "read"; "size" => n);
@@ -174,13 +174,13 @@ pub fn run(matches: ArgMatches) -> Result<()> {
                 info!(client_logger, "append"; "size" => n, "filepath" => filepath);
             }
 
-            info!(client_logger, "finsihed"; "total_size" => total_size);
+            info!(client_logger, "read_done"; "total_size" => total_size);
             info!(client_logger, "reply"; "message" => url);
             writer.write(format!("{}\n", url).as_bytes()).map_err(|e| {
                 error!(client_logger, "failed to reply to tcp client"; "err" => format!("{}", e));
             })?;
 
-            info!(client_logger, "finished connection");
+            info!(client_logger, "hangup");
 
             Ok(())
         });
