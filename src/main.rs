@@ -30,7 +30,7 @@ use mount::Mount;
 use rand::Rng;
 use slog::DrainExt;
 use staticfile::Static;
-use tokio_core::io::{Io, read, write_all};
+use tokio_core::io::{Io, read};
 use tokio_core::reactor::Core;
 use tokio_core::net::TcpListener;
 
@@ -55,7 +55,7 @@ pub fn start() -> Result<()> {
             .help("Port to listen on (TCP)"))
         .arg(Arg::with_name("buffer-size")
             .long("buffer-size")
-            .default_value("65536")
+            .default_value("65536000000")
             .help("Size of the buffer to read into"))
         .arg(Arg::with_name("domain")
             .long("domain")
@@ -86,13 +86,12 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     // parse application arguments
     let tcp_port = value_t!(matches.value_of("tcp-port"), u16).unwrap_or_else(|e| e.exit());
     let buffer_size = value_t!(matches.value_of("buffer-size"), usize).unwrap_or_else(|e| e.exit());
-    let domain = value_t!(matches.value_of("domain"), String).unwrap_or_else(|e| e.exit());
+    let domain = matches.value_of("domain").unwrap().to_string();
     let http_port = value_t!(matches.value_of("http-port"), u16).unwrap_or_else(|e| e.exit());
     let slug_len = value_t!(matches.value_of("slug-len"), usize).unwrap_or_else(|e| e.exit());
-    let storage_dir_s: String = value_t!(matches.value_of("storage-dir"), String)
-        .unwrap_or_else(|e| e.exit());
+    let storage_dir_s = matches.value_of("storage-dir").unwrap().to_string();
     let storage_dir = Path::new(storage_dir_s.as_str());
-    let log_file_s = value_t!(matches.value_of("log-file"), String).unwrap_or_else(|e| e.exit());
+    let log_file_s = matches.value_of("log-file").unwrap().to_string();
     let log_file = Path::new(log_file_s.as_str());
 
     fs::create_dir_all(storage_dir).chain_err(|| "failed to create storage dir")?;
@@ -154,19 +153,20 @@ pub fn run(matches: ArgMatches) -> Result<()> {
         }
         let url = format!("http://{}/{}", host, slug);
 
-        let (reader, writer) = tcpconn.split();
+        let (reader, mut writer) = tcpconn.split();
         let process = read(reader, vec!(0; buffer_size)).then(move |res| {
             let (_, buf, n) = res.map_err(|_| {
                 error!(client_logger, "failed to read from client");
             })?;
 
-            paste_file.write(&buf[0..n])
-                .expect("failed to write paste to file");
+            paste_file.write(&buf[0..n]).map_err(|_| {
+                error!(client_logger, "failed to write paste to file");
+            })?;
             info!(client_logger, "persisted"; "filepath" => filepath);
 
-            write_all(writer, format!("{}\n", url).as_bytes())
-                .wait()
-                .expect("failed to reply to tcp client");
+            writer.write(format!("{}\n", url).as_bytes()).map_err(|_| {
+                error!(client_logger, "failed to reply to tcp client");
+            })?;
             info!(client_logger, "replied"; "message" => url);
 
             info!(client_logger, "finished connection");
