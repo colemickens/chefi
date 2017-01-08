@@ -156,6 +156,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
 
         let (mut reader, mut writer) = tcpconn.split();
         let process = futures::lazy(move || {
+            let mut total_size = 0;
             loop {
                 let mut buf = vec!(0; buffer_size);
                 let read_result = reader.read(&mut buf);
@@ -164,6 +165,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
                     break;
                 }
                 let n = read_result.unwrap();
+                total_size += n;
                 info!(client_logger, "read"; "size" => n);
 
                 paste_file.write(&buf[0..n]).map_err(|_| {
@@ -172,10 +174,11 @@ pub fn run(matches: ArgMatches) -> Result<()> {
                 info!(client_logger, "append"; "size" => n, "filepath" => filepath);
             }
 
+            info!(client_logger, "finsihed"; "total_size" => total_size);
             info!(client_logger, "reply"; "message" => url);
-            writer.write(format!("{}\n", url).as_bytes()).map_err(|_| {
-                error!(client_logger, "failed to reply to tcp client");
-            }).map_err(|_| {})?;
+            writer.write(format!("{}\n", url).as_bytes()).map_err(|e| {
+                error!(client_logger, "failed to reply to tcp client"; "err" => format!("{}", e));
+            })?;
 
             info!(client_logger, "finished connection");
 
