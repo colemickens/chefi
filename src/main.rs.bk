@@ -34,6 +34,8 @@ use tokio_core::io::{Io, read, write_all};
 use tokio_core::reactor::Core;
 use tokio_core::net::TcpListener;
 
+// TODO: Fix use of `error_chain`
+
 mod errors {
     error_chain!{}
 }
@@ -45,15 +47,14 @@ pub fn start() -> Result<()> {
         .version(crate_version!())
         .author("Cole Mickens")
         .about("Clone of `solusipse/fiche` (aka termbin.com) in Rust")
-        .arg(Arg::with_name("listen")
-            .long("listen")
+        .arg(Arg::with_name("listen").long("listen")
             .default_value("0.0.0.0")
             .help("Address to listen on."))
         .arg(Arg::with_name("tcp-port")
             .long("port")
             .default_value("9999")
             .help("Port to listen on (TCP)"))
-        .arg(Arg::with_name("buffer-size")
+        .arg(Arg::with_name("buffer")
             .long("buffer-size")
             .default_value("65536")
             .help("Size of the buffer to read into"))
@@ -85,7 +86,7 @@ pub fn start() -> Result<()> {
 pub fn run(matches: ArgMatches) -> Result<()> {
     // parse application arguments
     let tcp_port = value_t!(matches.value_of("tcp-port"), u16).unwrap_or_else(|e| e.exit());
-    let buffer_size = value_t!(matches.value_of("buffer-size"), usize).unwrap_or_else(|e| e.exit());
+    let buffer_size = value_t!(matches.value_of("buffer"), usize).unwrap_or_else(|e| e.exit());
     let domain = value_t!(matches.value_of("domain"), String).unwrap_or_else(|e| e.exit());
     let http_port = value_t!(matches.value_of("http-port"), u16).unwrap_or_else(|e| e.exit());
     let slug_len = value_t!(matches.value_of("slug-len"), usize).unwrap_or_else(|e| e.exit());
@@ -146,7 +147,6 @@ pub fn run(matches: ArgMatches) -> Result<()> {
         // ^^^^
         // TODO: does chain_err give me much over expect(...) in this case anyway?
         let mut paste_file = File::create(&filepath).expect("failed to create paste file");
-        //let mut paste_file = File::create(&filepath).chain_err(|| "failed to create paste file")?;
 
         let mut host = domain.clone();
         if http_port != 80 {
@@ -156,9 +156,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
 
         let (reader, writer) = tcpconn.split();
         let process = read(reader, vec!(0; buffer_size)).then(move |res| {
-            let (_, buf, n) = res.map_err(|_| {
-                error!(client_logger, "failed to read from client");
-            })?;
+            let (_, buf, n) = res.map_err(|_| { error!(client_logger, "failed to read from client"); })?;
 
             paste_file.write(&buf[0..n])
                 .expect("failed to write paste to file");

@@ -51,3 +51,8 @@ Huge thanks to [24 days of Rust](https://siciarz.net/24-days-rust-conclusion-201
 I can't emphasize enough what a fantastic resource this is. Real patterns for
 building real apps in Rust with great examples and links for further reading and
 more elaborate examples. Thanks **@zsiciar** ([twitter](https://twitter.com/zsiciar)/[github](https://github.com/zsiciarz))!
+
+Another big thank you to @Ralith!
+
+Ralith suggestions:
+ - "make a helper function to log an error_chain error in all it's proper glory"
