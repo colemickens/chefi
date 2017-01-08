@@ -41,6 +41,7 @@ mod errors {
 quick_main!(start);
 
 pub fn start() -> Result<()> {
+    let default_buffer_size = format!("{}", 10*1000*1000);
     let matches = App::new("chefi")
         .version(crate_version!())
         .author("Cole Mickens")
@@ -55,7 +56,7 @@ pub fn start() -> Result<()> {
             .help("Port to listen on (TCP)"))
         .arg(Arg::with_name("buffer-size")
             .long("buffer-size")
-            .default_value("65536000000")
+            .default_value(&default_buffer_size)
             .help("Size of the buffer to read into"))
         .arg(Arg::with_name("domain")
             .long("domain")
@@ -162,7 +163,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
             paste_file.write(&buf[0..n]).map_err(|_| {
                 error!(client_logger, "failed to write paste to file");
             })?;
-            info!(client_logger, "persisted"; "filepath" => filepath);
+            info!(client_logger, "persisted"; "size" => n, "filepath" => filepath);
 
             writer.write(format!("{}\n", url).as_bytes()).map_err(|_| {
                 error!(client_logger, "failed to reply to tcp client");
