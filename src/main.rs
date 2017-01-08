@@ -83,6 +83,16 @@ pub fn start() -> Result<()> {
     run(matches)
 }
 
+#[cfg(not(target_os="linux"))]
+pub fn configure_socket() {
+    println!("doing nothing on non-Linux");
+}
+
+#[cfg(all(target_os="linux"))]
+pub fn configure_socket() {
+    println!("doing something on non-Linux");
+}
+
 pub fn run(matches: ArgMatches) -> Result<()> {
     // parse application arguments
     let tcp_port = value_t!(matches.value_of("tcp-port"), u16).unwrap_or_else(|e| e.exit());
@@ -127,6 +137,8 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let listener = TcpListener::bind(&addr, &handle).chain_err(|| "failed to listen on tcp")?;
     let client_logger = logger.clone();
     let srv = listener.incoming().for_each(move |(tcpconn, addr)| {
+        configure_socket();
+
         let client_logger = client_logger.new(o!("client" => addr.ip().to_string()));
         info!(client_logger, "accepted connection");
 
