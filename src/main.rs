@@ -6,6 +6,7 @@ extern crate error_chain;
 extern crate futures;
 extern crate iron;
 extern crate mount;
+extern crate nix;
 extern crate rand;
 #[macro_use]
 extern crate slog;
@@ -23,17 +24,15 @@ use std::path::Path;
 
 use clap::{App, Arg, ArgMatches};
 use errors::*;
-use futures::Future;
 use futures::stream::Stream;
 use iron::Iron;
 use mount::Mount;
-use nix::sys::socket::{setsockopt};
 use rand::Rng;
 use slog::DrainExt;
 use staticfile::Static;
-use tokio_core::io::{Io, read};
+use tokio_core::io::{Io};
 use tokio_core::reactor::Core;
-use tokio_core::net::{TcpListener,TcpStream};
+use tokio_core::net::{TcpListener};
 
 mod errors {
     error_chain!{}
@@ -84,17 +83,6 @@ pub fn start() -> Result<()> {
     run(matches)
 }
 
-#[cfg(not(target_os="linux"))]
-pub fn configure_socket() {
-    println!("doing nothing on non-Linux");
-}
-
-#[cfg(all(target_os="linux"))]
-pub fn configure_socket(t: &TcpStream) {
-    println!("doing something on non-Linux");
-    setsockopt(&t
-}
-
 pub fn run(matches: ArgMatches) -> Result<()> {
     // parse application arguments
     let tcp_port = value_t!(matches.value_of("tcp-port"), u16).unwrap_or_else(|e| e.exit());
@@ -139,8 +127,6 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let listener = TcpListener::bind(&addr, &handle).chain_err(|| "failed to listen on tcp")?;
     let client_logger = logger.clone();
     let srv = listener.incoming().for_each(move |(tcpconn, addr)| {
-        configure_socket(&tcpconn);
-
         let client_logger = client_logger.new(o!("client" => addr.ip().to_string()));
         info!(client_logger, "accepted connection");
 
@@ -168,7 +154,35 @@ pub fn run(matches: ArgMatches) -> Result<()> {
         }
         let url = format!("http://{}/{}", host, slug);
 
-        let (reader, mut writer) = tcpconn.split();
+        let (mut reader, mut writer) = tcpconn.split();
+        let process = futures::lazy(move || {
+            loop {
+                let mut buf = vec!(0; buffer_size);
+                let read_result = reader.read(&mut buf);
+                if read_result.is_err() {
+                    warn!(client_logger, "failed to read from client");
+                    break;
+                }
+                let n = read_result.unwrap();
+                info!(client_logger, "read"; "size" => n);
+
+                paste_file.write(&buf[0..n]).map_err(|_| {
+                    error!(client_logger, "failed to append to file");
+                })?;
+                info!(client_logger, "append"; "size" => n, "filepath" => filepath);
+            }
+
+            info!(client_logger, "reply"; "message" => url);
+            writer.write(format!("{}\n", url).as_bytes()).map_err(|_| {
+                error!(client_logger, "failed to reply to tcp client");
+            }).map_err(|_| {})?;
+
+            info!(client_logger, "finished connection");
+
+            Ok(())
+        });
+
+        /*
         let process = read(reader, vec!(0; buffer_size)).then(move |res| {
             let (_, buf, n) = res.map_err(|_| {
                 error!(client_logger, "failed to read from client");
@@ -186,7 +200,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
 
             info!(client_logger, "finished connection");
             Ok(())
-        });
+        });*/
 
         handle.spawn(process);
         Ok(())
