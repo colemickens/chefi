@@ -27,12 +27,13 @@ use futures::Future;
 use futures::stream::Stream;
 use iron::Iron;
 use mount::Mount;
+use nix::sys::socket::{setsockopt};
 use rand::Rng;
 use slog::DrainExt;
 use staticfile::Static;
 use tokio_core::io::{Io, read};
 use tokio_core::reactor::Core;
-use tokio_core::net::TcpListener;
+use tokio_core::net::{TcpListener,TcpStream};
 
 mod errors {
     error_chain!{}
@@ -89,8 +90,9 @@ pub fn configure_socket() {
 }
 
 #[cfg(all(target_os="linux"))]
-pub fn configure_socket() {
+pub fn configure_socket(t: &TcpStream) {
     println!("doing something on non-Linux");
+    setsockopt(&t
 }
 
 pub fn run(matches: ArgMatches) -> Result<()> {
@@ -137,7 +139,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let listener = TcpListener::bind(&addr, &handle).chain_err(|| "failed to listen on tcp")?;
     let client_logger = logger.clone();
     let srv = listener.incoming().for_each(move |(tcpconn, addr)| {
-        configure_socket();
+        configure_socket(&tcpconn);
 
         let client_logger = client_logger.new(o!("client" => addr.ip().to_string()));
         info!(client_logger, "accepted connection");
