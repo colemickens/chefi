@@ -3,6 +3,7 @@ extern crate clap;
 #[macro_use]
 extern crate error_chain;
 //#[macro_use]
+
 extern crate futures;
 extern crate iron;
 extern crate mount;
@@ -98,18 +99,23 @@ pub fn start() -> Result<()> {
 
 pub fn run(matches: ArgMatches) -> Result<()> {
     // parse application arguments
-    let tcp_port = value_t!(matches.value_of("tcp-port"), u16).unwrap_or_else(|e| e.exit());
+    let tcp_paste_port =
+        value_t!(matches.value_of("tcp-paste-port"), u16).unwrap_or_else(|e| e.exit());
+    let http_paste_port =
+        value_t!(matches.value_of("http-paste-port"), u16).unwrap_or_else(|e| e.exit());
+
     let buffer_size = value_t!(matches.value_of("buffer-size"), usize).unwrap_or_else(|e| e.exit());
     let domain = matches.value_of("domain").unwrap().to_string();
-    let http_port = value_t!(matches.value_of("http-port"), u16).unwrap_or_else(|e| e.exit());
     let slug_len = value_t!(matches.value_of("slug-len"), usize).unwrap_or_else(|e| e.exit());
+
+    let http_serve_port = value_t!(matches.value_of("http-serve-port"), u16)
+        .unwrap_or_else(|e| e.exit());
 
     // TODO: remove this ugliness...
     let storage_dir_s = matches.value_of("storage-dir").unwrap().to_string();
     let storage_dir = Path::new(storage_dir_s.as_str());
 
-    fs::create_dir_all(storage_dir)
-        .chain_err(|| "failed to create storage dir")?;
+    fs::create_dir_all(storage_dir).chain_err(|| "failed to create storage dir")?;
 
     // build logger
     let mut builder = TerminalLoggerBuilder::new();
@@ -117,6 +123,26 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     builder.destination(Destination::Stderr);
     let logger = builder.build().unwrap();
 
+    run_server(
+        tcp_paste_port,
+        http_paste_port,
+        buffer_size,
+        domain,
+        http_serve_port,
+        slug_len,
+        storage_dir,
+    )
+}
+
+pub fn run_server(
+    tcp_paste_port: u16,
+    http_paste_port: u16,
+    buffer_size: u64,
+    domain: &str,
+    http_serve_port: u16,
+    slug_len: &str,
+    storage_dir: &str,
+) -> Result<()> {
     // serve existing pastes
     {
         let logger = logger.clone();
@@ -129,7 +155,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
             Iron::new(mount)
                 .http(format!("0.0.0.0:{}", http_port).as_str())
                 .chain_err(|| "failed to listen on http")
-        });
+        }); //should we return the thread?
     }
 
     // configure async loop
@@ -140,8 +166,7 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let addr = format!("0.0.0.0:{}", tcp_port)
         .parse()
         .chain_err(|| "failed to parse http socket")?;
-    let listener = TcpListener::bind(&addr, &handle)
-        .chain_err(|| "failed to listen on tcp")?;
+    let listener = TcpListener::bind(&addr, &handle).chain_err(|| "failed to listen on tcp")?;
     let client_logger = logger.clone();
     let srv = listener.incoming().for_each(move |(tcpconn, addr)| {
         let client_logger = client_logger.new(o!("client" => addr.ip().to_string()));
@@ -193,11 +218,9 @@ pub fn run(matches: ArgMatches) -> Result<()> {
                 total_size += n;
                 info!(client_logger, "read"; "size" => n);
 
-                paste_file
-                    .write(&buf[0..n])
-                    .map_err(|_| {
-                        error!(client_logger, "failed to append to file");
-                    })?;
+                paste_file.write(&buf[0..n]).map_err(|_| {
+                    error!(client_logger, "failed to append to file");
+                })?;
                 info!(client_logger, "append"; "size" => n, "filepath" => &filepath);
             }
 
