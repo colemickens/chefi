@@ -7,7 +7,7 @@ extern crate error_chain;
 extern crate futures;
 extern crate iron;
 extern crate mount;
-extern crate nix;
+//extern crate nix;
 extern crate rand;
 #[macro_use]
 extern crate slog;
@@ -46,7 +46,7 @@ pub fn start() -> Result<()> {
     let default_buffer_size = format!("{}", 10 * 1000 * 1000);
     let default_slug_len = 5.to_string();
 
-    let matches = App::new("chefi")
+    let app = App::new("chefi")
         .version(crate_version!())
         .author("Cole Mickens")
         .about("Clone of `solusipse/fiche` (aka termbin.com) in Rust")
@@ -57,10 +57,16 @@ pub fn start() -> Result<()> {
                 .help("Address to listen on."),
         )
         .arg(
-            Arg::with_name("tcp-port")
-                .long("port")
+            Arg::with_name("tcp-paste-port")
+                .long("tcp-paste-port")
                 .default_value("9999")
                 .help("Port to listen on (TCP)"),
+        )
+        .arg(
+            Arg::with_name("http-paste-port")
+                .long("http-paste-port")
+                .default_value("9998")
+                .help("Port to listen on (HTTP)"),
         )
         .arg(
             Arg::with_name("buffer-size")
@@ -75,8 +81,8 @@ pub fn start() -> Result<()> {
                 .help("Domain name pastes are served on"),
         )
         .arg(
-            Arg::with_name("http-port")
-                .long("http-port")
+            Arg::with_name("http-serve-port")
+                .long("http-serve-port")
                 .default_value("9090")
                 .help("Port to listen on (HTTP)"),
         )
@@ -91,8 +97,9 @@ pub fn start() -> Result<()> {
                 .long("storage-dir")
                 .default_value("/tmp/chefi/data")
                 .help("Storage location for pastes"),
-        )
-        .get_matches();
+        );
+
+    let matches = app.get_matches();
 
     run(matches)
 }
@@ -111,11 +118,10 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let http_serve_port = value_t!(matches.value_of("http-serve-port"), u16)
         .unwrap_or_else(|e| e.exit());
 
-    // TODO: remove this ugliness...
-    let storage_dir_s = matches.value_of("storage-dir").unwrap().to_string();
-    let storage_dir = Path::new(storage_dir_s.as_str());
+    let storage_dir = matches.value_of("storage-dir").unwrap().to_string();
+    
 
-    fs::create_dir_all(storage_dir).chain_err(|| "failed to create storage dir")?;
+    fs::create_dir_all(&storage_dir).chain_err(|| "failed to create storage dir")?;
 
     // build logger
     let mut builder = TerminalLoggerBuilder::new();
@@ -124,36 +130,40 @@ pub fn run(matches: ArgMatches) -> Result<()> {
     let logger = builder.build().unwrap();
 
     run_server(
+        &logger,
         tcp_paste_port,
         http_paste_port,
         buffer_size,
-        domain,
+        &domain,
         http_serve_port,
         slug_len,
-        storage_dir,
+        &storage_dir,
     )
 }
 
 pub fn run_server(
+    logger: &slog::Logger,
     tcp_paste_port: u16,
-    http_paste_port: u16,
-    buffer_size: u64,
+    _http_paste_port: u16,
+    buffer_size: usize,
     domain: &str,
     http_serve_port: u16,
-    slug_len: &str,
+    slug_len: usize,
     storage_dir: &str,
 ) -> Result<()> {
     // serve existing pastes
+    let storage_dir1 = Path::new(storage_dir);
+
     {
+        let storage_dir = String::from(storage_dir);
         let logger = logger.clone();
-        let storage_dir_s = storage_dir_s.clone();
         thread::spawn(move || {
+            let storage_dir = Path::new(&storage_dir).clone();
             let mut mount = Mount::new();
-            let path = Path::new(storage_dir_s.as_str());
-            mount.mount("/", Static::new(path));
-            info!(logger, "serving pastes"; "port" => http_port, "dir" => path.to_str());
+            mount.mount("/", Static::new(storage_dir));
+            info!(logger, "serving pastes"; "port" => http_serve_port, "dir" => storage_dir.to_str());
             Iron::new(mount)
-                .http(format!("0.0.0.0:{}", http_port).as_str())
+                .http(format!("0.0.0.0:{}", http_serve_port).as_str())
                 .chain_err(|| "failed to listen on http")
         }); //should we return the thread?
     }
@@ -163,7 +173,7 @@ pub fn run_server(
     let handle = lp.handle();
 
     // handle tcp
-    let addr = format!("0.0.0.0:{}", tcp_port)
+    let addr = format!("0.0.0.0:{}", tcp_paste_port)
         .parse()
         .chain_err(|| "failed to parse http socket")?;
     let listener = TcpListener::bind(&addr, &handle).chain_err(|| "failed to listen on tcp")?;
@@ -176,7 +186,7 @@ pub fn run_server(
             .gen_ascii_chars()
             .take(slug_len)
             .collect();
-        let filepath = storage_dir.join(&slug);
+        let filepath = storage_dir1.join(&slug);
         let filepath = filepath
             .to_str()
             .expect("storage path for paste was invalid")
@@ -196,9 +206,9 @@ pub fn run_server(
         let mut paste_file = File::create(&filepath).expect("failed to create paste file");
         //let mut paste_file = File::create(&filepath).chain_err(|| "failed to create paste file")?;
 
-        let mut host = domain.clone();
-        if http_port != 80 {
-            host = format!("{}:{}", host, http_port);
+        let mut host = domain.to_owned();
+        if http_serve_port != 80 {
+            host = format!("{}:{}", host, &http_serve_port);
         }
         let url = format!("http://{}/{}", host, slug);
 
@@ -259,6 +269,6 @@ pub fn run_server(
         Ok(())
     });
 
-    info!(logger, "listening for pastes"; "port" => tcp_port);
+    info!(logger, "listening for pastes"; "port" => tcp_paste_port);
     lp.run(srv).chain_err(|| "failed to serve")
 }
