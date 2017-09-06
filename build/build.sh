@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# <project>/build/build.sh
-# Uses rustup + musl-gcc to produce a fully static binary of `chefi`.
-
 set -e
 set -u
 set -o pipefail
@@ -14,10 +11,14 @@ while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
 done
 DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+ROOT="${DIR}/.."
 
 ################################################################################
 
 set -x
+
+# TODO: rip all of this out
+# require that the official build goes through docker
 
 function cargo() { rustup run nightly cargo "${@}" ; }
 
