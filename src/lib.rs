@@ -38,6 +38,13 @@ mod errors {
     }
 }
 
+enum HandleMethod {
+    MethodOne,
+    MethodTwo,
+}
+
+const HANDLE_METHOD: HandleMethod = HandleMethod::MethodOne;
+
 pub fn run_server(
     logger: &slog::Logger,
     tcp_paste_port: u16,
@@ -83,13 +90,27 @@ pub fn run_server(
     let server = async_block! {
         #[async]
         for (client, _) in listener.incoming() {
-            handle.spawn(handle_client(client).then(|result| {
+            /*
+            // TODO: investigate why this doesn't work:
+            let task = {
+                match HANDLE_METHOD {
+                    HandleMethod::MethodOne => handle_client1(client),
+                    HandleMethod::MethodTwo => handle_client2(client),
+                }
+            };
+            */
+
+            let task = handle_client1(client);
+            //let task = handle_client2(client);
+
+            let task = task.then(|result| {
                 match result {
                     Ok(n) => println!("wrote {} bytes", n),
                     Err(e) => println!("IO error {:?}", e),
                 }
                 Ok(())
-            }));
+            });
+            handle.spawn(task);
         }
 
         Ok::<(), std::io::Error>(())
@@ -99,7 +120,25 @@ pub fn run_server(
 }
 
 #[async]
-fn handle_client(stream: TcpStream) -> std::io::Result<u64> {
+fn handle_client1(stream: TcpStream) -> std::io::Result<u64> {
+    let (reader, mut writer) = stream.split();
+    let input = BufReader::new(reader);
+
+    let mut total = 0;
+
+    #[async]
+    for line in tokio_io::io::lines(input) {
+        println!("got client line: {}", line);
+        total += line.len() as u64;
+        writer = await!(tokio_io::io::write_all(writer, line))?.0;
+    }
+
+    Ok(total)
+}
+
+
+#[async]
+fn handle_client2(stream: TcpStream) -> std::io::Result<u64> {
     let (reader, mut writer) = stream.split();
     let input = BufReader::new(reader);
 
