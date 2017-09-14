@@ -15,9 +15,7 @@ ROOT="${DIR}/.."
 ################################################################################
 
 # TODO: Do I need `find` all the `*.rs` files to invoke
-fmtoutput="$(rustfmt --write-mode=diff "${ROOT}/src/main.rs")"
-
-if [[ ! -z "${fmtoutput}" ]]; then
-    echo "Your code base is not properly formatted." >/dev/stderr
-    echo "->${fmtoutput}<-" >/dev/stderr
+if ! cargo fmt -- --write-mode=diff ; then
+	echo "You failed. Format your code. (./build/fix-fmt.sh)"
 fi
+

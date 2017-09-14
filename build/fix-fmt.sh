@@ -16,4 +16,4 @@ ROOT="${DIR}/.."
 ################################################################################
 
 # TODO: Do I need `find` all the `*.rs` files to invoke
-rustfmt --write-mode=overwrite "${ROOT}/src/main.rs"
+cargo fmt -- --write-mode=overwrite
