@@ -4,6 +4,8 @@ extern crate chefi;
 extern crate error_chain;
 extern crate sloggers;
 #[macro_use]
+extern crate slog;
+#[macro_use]
 extern crate structopt_derive;
 extern crate structopt;
 
@@ -42,6 +44,10 @@ pub fn start() -> Result<()> {
 
     // TODO: Consider parsing out the dir and create it first
     // then pass it in to run_server
+
+    info!(
+        logger,
+        "running server"; "port" => &args.tcp_paste_port, "dir" => &args.storage_dir);
 
     chefi::run_server(
         &logger,
