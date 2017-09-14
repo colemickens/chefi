@@ -24,18 +24,25 @@ mod errors {
 struct ChefiArgs {
     #[structopt(long = "listen", short = "l", default_value = "0.0.0.0")]
     listen: String,
+
     #[structopt(long = "tcp-paste-port", default_value = "9999")]
     tcp_paste_port: u16,
+
     #[structopt(long = "http-paste-port", default_value = "9998")]
     http_paste_port: u16,
+
     #[structopt(long = "buffer-size", default_value = "10000000")]
     buffer_size: usize,
+
     #[structopt(long = "domain", default_value = "localhost")]
     domain: String,
+
     #[structopt(long = "http-serve-port", default_value = "9090")]
     http_serve_port: u16,
+
     #[structopt(long = "slug-len", default_value = "5")]
     slug_len: usize,
+
     #[structopt(long = "storage-dir", default_value = "/tmp/chefi/data")]
     storage_dir: String,
 }

@@ -1,17 +1,17 @@
 [package]
 name = "chefi"
+license = "MIT"
 version = "0.1.0"
+readme = "README.md"
+repository = "https://github.com/colemickens/chefi"
 authors = ["Cole Mickens <cole.mickens@gmail.com>"]
+description = "chefi is a TCP/HTTP-enabled Pastebin"
 
 [dependencies]
-clap = "^2.26"
-error-chain = "^0.11.0-rc.2"
+error-chain = "^0.11.0"
 futures = "^0.1"
-futures-await = { git = 'https://github.com/alexcrichton/futures-await' }
 iron = "^0.5"
-log = "^0.3"
 mount = "^0.3"
-nix = "^0.9"
 rand = "^0.3"
 slog = "^2.0"
 sloggers = "^0.2"

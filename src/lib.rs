@@ -12,7 +12,6 @@ extern crate tokio_io;
 
 use std::io::prelude::*;
 use std::fs;
-use std::fs::File;
 use std::thread;
 use std::path::{Path, PathBuf};
 
@@ -46,7 +45,7 @@ pub fn run_server(
     timeout: std::time::Duration,
 ) -> Result<()> {
     // serve existing pastes
-    fs::create_dir_all(&storage_dir).chain_err(|| "failed to create storage dir")?;
+    std::fs::create_dir_all(&storage_dir).chain_err(|| "failed to create storage dir")?;
 
     {
         let storage_dir = String::from(storage_dir);
@@ -96,7 +95,7 @@ pub fn run_server(
             .to_string();
 
         // TODO: lifetime/cloning or error_chain issue:
-        let mut paste_file = File::create(&filepath).expect("failed to create paste file");
+        let mut paste_file = fs::File::create(&filepath).expect("failed to create paste file");
         //let mut paste_file = File::create(&filepath).chain_err(|| "failed to create paste file")?;
 
         let mut host = domain.to_owned();
