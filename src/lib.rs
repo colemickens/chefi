@@ -120,6 +120,20 @@ pub fn run_server(
                 let read_result = reader.read(&mut buf);
 
                 match read_result {
+                    // TODO: remove this arm when Windows isn't being weird
+                    Ok(n) if n == 0 => {
+                        // this entire thing is put here for windows which seems to just keep reading 0 bytes
+                        debug!(client_logger, "ZERO BYTE READ...");
+
+                        // TODO: see note from where I copied this:
+                        let duration = std::time::Duration::from_millis(100);
+                        std::thread::sleep(duration);
+                        if std::time::Instant::now() > last_received_timestamp + timeout {
+                            debug!(client_logger, "TIMEOUT: {:?}", read_result);
+                            break;
+                        }
+                    },
+                    
                     Ok(n) => {
                         last_received_timestamp = std::time::Instant::now();
                         total_size += n;
@@ -133,7 +147,7 @@ pub fn run_server(
                         })?;
 
                         debug!(client_logger, "Copied {} bytes to disk", n);
-                    }
+                    },
                     Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
                         debug!(client_logger, "WOULDBLOCK...");
 
