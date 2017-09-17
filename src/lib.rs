@@ -1,9 +1,12 @@
+#![feature(conservative_impl_trait)]
+
+extern crate bodyparser;
 #[macro_use]
 extern crate error_chain;
 extern crate futures;
 extern crate iron;
-extern crate mount;
 extern crate rand;
+extern crate router;
 #[macro_use]
 extern crate slog;
 extern crate staticfile;
@@ -17,10 +20,13 @@ use std::path::{Path, PathBuf};
 
 use errors::*;
 use futures::stream::Stream;
-use iron::Iron;
-use mount::Mount;
+use iron::prelude::*;
+use iron::{Handler,Iron,Request,Response};
+use iron::status;
 use rand::Rng;
+use slog::Logger;
 use staticfile::Static;
+use router::Router;
 use tokio_io::AsyncRead;
 use tokio_core::reactor::Core;
 use tokio_core::net::TcpListener;
@@ -33,40 +39,93 @@ mod errors {
     }
 }
 
-pub fn run_server(
-    logger: &slog::Logger,
-    tcp_paste_port: u16,
-    _http_paste_port: u16,
+fn get_slug(slug_len: usize) -> String {
+    rand::thread_rng()
+        .gen_ascii_chars()
+        .take(slug_len)
+        .collect()
+}
+
+fn get_url(domain: &str, slug: &str, http_port: u16) -> String {
+    let mut host = domain.to_owned();
+    if http_port != 80 {
+        host = format!("{}:{}", host, &http_port);
+    }
+    let url = format!("http://{}/{}", host, slug);
+    url
+}
+
+pub fn run_http(http_port: u16,
+            slug_len: usize,
+            buffer_size: usize,
+            domain: &str,
+            storage_dir: &Path,
+            logger: &Logger)
+{
+    let domain: String = domain.to_owned();
+    let storage_dir = storage_dir.to_path_buf();
+    let logger = logger.clone();
+
+    thread::spawn(move || {
+        let mut router = Router::new();
+        
+        let files = Static::new(&storage_dir);
+        router.post("/", handle_http_paste(storage_dir.clone(), slug_len, domain, http_port), "handle_http_paste");
+        router.get("/usage", print_usage, "print_usage");
+        router.get("/:file", files, "files");
+
+        info!(
+            logger,
+            "serving pastes"; "port" => http_port, "dir" => storage_dir.to_str());
+        let m = Iron::new(router);
+        let h = m.http(format!("0.0.0.0:{}", http_port).as_str());
+        h.chain_err(|| "failed to listen on http")
+    });
+}
+
+fn print_usage(req: &mut Request) -> IronResult<Response> {
+    Ok(Response::with((status::Ok, "USAGE GOES HERE")))
+}
+
+fn handle_http_paste(storage_dir: PathBuf, slug_len: usize, domain: String, http_port: u16) -> impl Handler {
+    move |req: &mut Request| -> IronResult<Response> {
+        // TODO: convert to streaming
+        let body = req.get::<bodyparser::Raw>();
+        match body {
+            Ok(Some(body)) => {
+                let slug = get_slug(slug_len);
+                let url = get_url(&domain, &slug, http_port);
+                let filepath = storage_dir.join(&slug);
+                // TODO: error handling, etc
+                let mut paste_file = fs::File::create(&filepath).expect("failed to create paste file");
+
+                paste_file.write_all(body.as_bytes()).unwrap(); // TODO: error handle
+                // TODO: save to file
+
+                Ok(Response::with((status::Ok, url)))
+            },
+            Ok(None) => {
+                println!("No body");
+                Ok(Response::with((status::BadRequest, "No Body")))
+            },
+            Err(err) => {
+                println!("Error: {:?}", err);
+                Ok(Response::with((status::InternalServerError, "err")))
+            },
+        }
+    }
+}
+
+pub fn run_tcp(
+    http_port: u16,
+    tcp_port: u16,
+    slug_len: usize,
     buffer_size: usize,
     domain: &str,
-    http_serve_port: u16,
-    slug_len: usize,
-    storage_dir: &str,
     timeout: std::time::Duration,
+    storage_dir: &Path,
+    logger: &slog::Logger,
 ) -> Result<()> {
-    // serve existing pastes
-    std::fs::create_dir_all(&storage_dir).chain_err(|| "failed to create storage dir")?;
-
-    {
-        let storage_dir = String::from(storage_dir);
-        let logger = logger.clone();
-
-        thread::spawn(move || {
-            let storage_dir = Path::new(&storage_dir);
-            let mut mount = Mount::new();
-            mount.mount("/", Static::new(storage_dir));
-            info!(
-                logger,
-                "serving pastes"; "port" => http_serve_port, "dir" => storage_dir.to_str());
-            let m = Iron::new(mount);
-            let h = m.http(format!("0.0.0.0:{}", http_serve_port).as_str());
-            h.chain_err(|| "failed to listen on http")
-        });
-    }
-
-    // TODO: start another thread to listen for pastes over HTTP PUT or whatever is convenient with curl
-    // TODO: also, spit out usage at curl http://URLBASE/usage
-
     let storage_dir = PathBuf::from(storage_dir);
 
     // configure async loop
@@ -74,7 +133,7 @@ pub fn run_server(
     let handle = core.handle();
 
     // handle tcp
-    let addr = format!("0.0.0.0:{}", tcp_paste_port)
+    let addr = format!("0.0.0.0:{}", tcp_port)
         .parse()
         .chain_err(|| "failed to parse http socket")?;
     let listener = TcpListener::bind(&addr, &handle).chain_err(|| "failed to listen on tcp")?;
@@ -84,34 +143,16 @@ pub fn run_server(
         let client_logger = client_logger.new(o!("client" => addr.ip().to_string()));
         info!(client_logger, "accepted connection");
 
-        let slug: String = rand::thread_rng()
-            .gen_ascii_chars()
-            .take(slug_len)
-            .collect();
+        let slug = get_slug(slug_len);   
+        let url = get_url(domain, &slug, http_port);     
         let filepath = storage_dir.join(&slug);
-        let filepath = filepath
-            .to_str()
-            .expect("storage path for paste was invalid")
-            .to_string();
 
         // TODO: lifetime/cloning or error_chain issue:
         let mut paste_file = fs::File::create(&filepath).expect("failed to create paste file");
         //let mut paste_file = File::create(&filepath).chain_err(|| "failed to create paste file")?;
 
-        let mut host = domain.to_owned();
-        if http_serve_port != 80 {
-            host = format!("{}:{}", host, &http_serve_port);
-        }
-
-        // TODO: lifetime/cloning issue:
-        //let url = format!("http://{}/{}", host, slug);
-
         let (mut reader, mut writer) = tcpconn.split();
-
         let process = futures::lazy(move || {
-            let url = format!("http://{}/{}", host, slug);
-
-            //let timeout = std::time::Duration::from_secs(timeout);
             let mut total_size = 0;
             let mut last_received_timestamp = std::time::Instant::now();
             loop {
